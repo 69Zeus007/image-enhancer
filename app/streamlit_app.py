@@ -19,10 +19,23 @@ def load_model():
 
 # Enhance image
 def enhance_image(image, model):
-    input_tensor = T.ToTensor()(image).unsqueeze(0)  # shape: [1, 3, H, W]
+    # Convert to YCbCr and split channels
+    ycbcr = image.convert("YCbCr")
+    y, cb, cr = ycbcr.split()
+
+    # Convert Y to tensor
+    y_tensor = T.ToTensor()(y).unsqueeze(0)  # shape: [1, 1, H, W]
+
+    # Run through model
     with torch.no_grad():
-        output = model(input_tensor).squeeze(0).clamp(0.0, 1.0)
-    return T.ToPILImage()(output)
+        out_y = model(y_tensor).squeeze(0).clamp(0.0, 1.0)
+
+    # Convert back to PIL and resize to match original
+    out_y_img = T.ToPILImage()(out_y).resize(image.size, Image.BICUBIC)
+
+    # Merge with original Cb and Cr
+    final_img = Image.merge("YCbCr", (out_y_img, cb, cr)).convert("RGB")
+    return final_img
 
 # Difference heatmap
 def compute_difference(original, enhanced):
@@ -43,16 +56,16 @@ if uploaded_file:
     model = load_model()
 
     # Downscale to simulate low-res input
-    #low_res = image.resize((image.width // 2, image.height // 2), Image.BICUBIC)
+    low_res = image.resize((image.width // 2, image.height // 2), Image.BICUBIC)
 
     # Upscale back to original size (baseline)
-    #upscaled = low_res.resize(image.size, Image.BICUBIC)
+    upscaled = low_res.resize(image.size, Image.BICUBIC)
 
     # Enhance with SRCNN
-    enhanced = enhance_image(image, model)
+    enhanced = enhance_image(upscaled, model)
 
     # Optional: sharpen for visual pop
-    enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.5)
+    enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.50)
 
     # Compute difference map
     diff_map = compute_difference(image, enhanced)
@@ -60,7 +73,7 @@ if uploaded_file:
     # Layout
     col1, col2, col3, col4 = st.columns(4)
     col1.image(image, caption="Original", use_container_width=True)
-    #col2.image(low_res, caption="Downscaled", use_container_width=True)
+    col2.image(low_res, caption="Downscaled", use_container_width=True)
     col3.image(enhanced, caption="Enhanced", use_container_width=True)
     col4.image(diff_map, caption="Difference Map", use_container_width=True)
 
